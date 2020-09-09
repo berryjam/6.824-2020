@@ -10,7 +10,7 @@ package main
 // Please do not change this file.
 //
 
-import "../mr"
+import "g.csail.mit.edu/6.824/src/mr"
 import "plugin"
 import "os"
 import "fmt"

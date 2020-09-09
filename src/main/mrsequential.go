@@ -7,7 +7,7 @@ package main
 //
 
 import "fmt"
-import "../mr"
+import "g.csail.mit.edu/6.824/src/mr"
 import "plugin"
 import "os"
 import "log"
@@ -36,7 +36,9 @@ func main() {
 	// accumulate the intermediate Map output.
 	//
 	intermediate := []mr.KeyValue{}
-	for _, filename := range os.Args[2:] {
+	fmt.Printf("os.Args[2:] %+v\n",os.Args[2:])
+	for _, filename := range  os.Args[2:] {
+		fmt.Printf("filename:%+v\n",filename)
 		file, err := os.Open(filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", filename)
