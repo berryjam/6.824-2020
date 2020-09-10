@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-var mutex sync.RWMutex
+var mutex sync.Mutex
 
-var finishedMutex sync.RWMutex
-
-var mapTaskMutex sync.Mutex
-
-var reduceTaskMutex sync.Mutex
+//var finishedMutex sync.Mutex
+//
+//var mapTaskMutex sync.Mutex
+//
+//var reduceTaskMutex sync.Mutex
 
 type TaskStatus int
 
@@ -70,12 +70,13 @@ func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error 
 	mutex.Lock()
 	fmt.Printf("master status:%+v\n", *m)
 	if m.Finished {
+		mutex.Unlock()
 		reply.JobDone = true
 		return nil
 	}
 	reply.JobDone = false
 	if m.CurPhase == MapPhase {
-		mapTaskMutex.Lock()
+		//mapTaskMutex.Lock()
 		for i := 0; i < len(m.MapTaskStatusMap); i++ {
 			if m.MapTaskStatusMap[i] == NotYetStarted {
 				reply.MapFile = m.Files[i]
@@ -87,16 +88,18 @@ func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error 
 				go func(mapTaskIdx int) {
 					timer := time.NewTimer(time.Second * 10)
 					<-timer.C
+					mutex.Lock()
 					if m.MapTaskStatusMap[mapTaskIdx] == Doing {
 						m.MapTaskStatusMap[mapTaskIdx] = NotYetStarted
 					}
+					mutex.Unlock()
 				}(i)
 				break
 			}
 		}
-		mapTaskMutex.Unlock()
+		//mapTaskMutex.Unlock()
 	} else if m.CurPhase == ReducePhase {
-		reduceTaskMutex.Lock()
+		//reduceTaskMutex.Lock()
 		for i := 0; i < len(m.ReduceTaskStatusMap); i++ {
 			if m.ReduceTaskStatusMap[i] == NotYetStarted {
 				reply.CurPhase = ReducePhase
@@ -107,15 +110,16 @@ func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error 
 				go func(reduceTaskIdx int) {
 					timer := time.NewTimer(time.Second * 10)
 					<-timer.C
-					reduceTaskMutex.Lock()
+					mutex.Lock()
 					if m.ReduceTaskStatusMap[reduceTaskIdx] == Doing {
 						m.ReduceTaskStatusMap[reduceTaskIdx] = NotYetStarted
 					}
+					mutex.Unlock()
 				}(i)
 				break
 			}
 		}
-		reduceTaskMutex.Unlock()
+		//reduceTaskMutex.Unlock()
 	}
 	mutex.Unlock()
 
@@ -125,7 +129,7 @@ func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error 
 func (m *Master) NotifyWorkerTaskStatus(args *NotifyWorkerTaskStatusArgs, reply *NotifyWorkerTaskStatusReply) error {
 	mutex.Lock()
 	if args.WorkerPhase == MapPhase {
-		mapTaskMutex.Lock()
+		//mapTaskMutex.Lock()
 		if args.Status == Success {
 			m.MapTaskStatusMap[args.TaskIdx] = Done
 			m.DoneMapNum++
@@ -135,25 +139,27 @@ func (m *Master) NotifyWorkerTaskStatus(args *NotifyWorkerTaskStatusArgs, reply 
 		} else if args.Status == Fail {
 			m.MapTaskStatusMap[args.TaskIdx] = NotYetStarted
 		} else {
+			mutex.Unlock()
 			return fmt.Errorf("unknown task status:%+v phase:%+v taskIdx:%+v", args.Status, args.WorkerPhase, args.TaskIdx)
 		}
-		mapTaskMutex.Unlock()
+		//mapTaskMutex.Unlock()
 	} else if args.WorkerPhase == ReducePhase {
-		reduceTaskMutex.Lock()
+		//reduceTaskMutex.Lock()
 		if args.Status == Success {
 			m.ReduceTaskStatusMap[args.TaskIdx] = Done
 			m.DoneReduceNum++
 			if m.DoneReduceNum == m.ReduceNum {
-				finishedMutex.Lock()
+				//mutex.Lock()
 				m.Finished = true
-				finishedMutex.Unlock()
+				//mutex.Unlock()
 			}
 		} else if args.Status == Fail {
 			m.ReduceTaskStatusMap[args.TaskIdx] = NotYetStarted
 		} else {
+			mutex.Unlock()
 			return fmt.Errorf("unknown task status:%+v phase:%+v taskIdx:%+v", args.Status, args.WorkerPhase, args.TaskIdx)
 		}
-		reduceTaskMutex.Unlock()
+		//reduceTaskMutex.Unlock()
 	}
 	mutex.Unlock()
 	return nil
@@ -184,9 +190,9 @@ func (m *Master) Done() bool {
 
 	// Your code here.
 
-	finishedMutex.RLock()
+	mutex.Lock()
 	ret = m.Finished
-	finishedMutex.RUnlock()
+	mutex.Unlock()
 
 	return ret
 }
@@ -215,7 +221,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 	for i := 0; i < nReduce; i++ {
 		m.ReduceTaskStatusMap[i] = NotYetStarted
 	}
-	m.CurPhase = MapPhase
 
 	m.server()
 	return &m

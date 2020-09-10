@@ -49,37 +49,31 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the master.
 	// CallExample()
-	var intermediateEncoderMap map[int]map[int]*json.Encoder
-	var intermediateFileNameMap map[int]map[int]string
-	var intermediateDecoderMap map[int]map[int]*json.Decoder
+	var intermediateEncoderMap map[int]*json.Encoder = nil
+	var intermediateFileNameMap map[int]string = nil
 	for {
 		askForReply := AskForTask()
 		fmt.Printf("askForReply:%+v\n", askForReply)
 		if askForReply.JobDone {
 			break
 		}
-		if intermediateEncoderMap == nil {
-			uuidInstance := uuid.New()
-			intermediateEncoderMap = make(map[int]map[int]*json.Encoder)
-			intermediateFileNameMap = make(map[int]map[int]string)
-			for i := 0; i < askForReply.MapNum; i++ {
-				for j := 0; j < askForReply.ReduceNum; j++ {
-					fileName := fmt.Sprintf("mr-tmp-%+v-%+v-%+v", uuidInstance.String(), i, j)
-					file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-					if err != nil {
-						log.Fatalf("cannot open intermediateEncoderFile:%v mapIdx:%+v reduceIdx:%+v", fileName, i, j)
-					}
-					if _, ok := intermediateEncoderMap[i]; !ok {
-						intermediateEncoderMap[i] = make(map[int]*json.Encoder)
-						intermediateFileNameMap[i] = make(map[int]string)
-					}
-					intermediateEncoderMap[i][j] = json.NewEncoder(file)
-					intermediateFileNameMap[i][j] = fileName
-				}
-			}
-		}
 		switch askForReply.CurPhase {
 		case MapPhase:
+			if intermediateEncoderMap == nil {
+				uuidInstance := uuid.New()
+				intermediateEncoderMap = make(map[int]*json.Encoder)
+				intermediateFileNameMap = make(map[int]string)
+				for j := 0; j < askForReply.ReduceNum; j++ {
+					fileName := fmt.Sprintf("mr-tmp-%+v-%+v-%+v", uuidInstance.String(), askForReply.MapTaskIdx, j)
+					file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					if err != nil {
+						log.Fatalf("cannot open intermediateEncoderFile:%v mapIdx:%+v reduceIdx:%+v", fileName, askForReply.MapTaskIdx, j)
+					}
+					intermediateEncoderMap[j] = json.NewEncoder(file)
+					intermediateFileNameMap[j] = fileName
+				}
+			}
+
 			fileName := askForReply.MapFile
 			file, err := os.Open(fileName)
 			if err != nil {
@@ -96,7 +90,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			mapPhaseSucc := true
 			for i := 0; i < len(kva); i++ {
 				reduceTaskIdx := ihash(kva[i].Key) % askForReply.ReduceNum
-				intermediateEncoder := intermediateEncoderMap[askForReply.MapTaskIdx][reduceTaskIdx]
+				intermediateEncoder := intermediateEncoderMap[reduceTaskIdx]
 				if err := intermediateEncoder.Encode(kva[i]); err != nil {
 					log.Fatalf("encode kv:%v failed", kva[i])
 					mapPhaseSucc = false
@@ -107,33 +101,22 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 			}
 			if mapPhaseSucc {
-				for i := range intermediateFileNameMap {
-					for j, fileName := range intermediateFileNameMap[i] {
-						os.Rename(fileName, fmt.Sprintf("mr-%+v-%+v", i, j))
-					}
+				for reduceIdx, fileName := range intermediateFileNameMap {
+					os.Rename(fileName, fmt.Sprintf("mr-%+v-%+v", askForReply.MapTaskIdx, reduceIdx))
 				}
+				intermediateEncoderMap = nil
+				intermediateFileNameMap = nil
 				NotifyWorkerTaskStatus(MapPhase, askForReply.MapTaskIdx, Success)
 			}
 		case ReducePhase:
-			if intermediateDecoderMap == nil {
-				intermediateDecoderMap = make(map[int]map[int]*json.Decoder)
-				for i := 0; i < askForReply.MapNum; i++ {
-					for j := 0; j < askForReply.ReduceNum; j++ {
-						fileName := fmt.Sprintf("mr-%+v-%+v", i, j)
-						file, err := os.Open(fileName)
-						if err != nil {
-							log.Fatalf("cannot open intermediateDecoderFile:%v mapIdx:%+v reduceIdx:%+v", fileName, i, j)
-						}
-						if _, ok := intermediateDecoderMap[i]; !ok {
-							intermediateDecoderMap[i] = make(map[int]*json.Decoder)
-						}
-						intermediateDecoderMap[i][j] = json.NewDecoder(file)
-					}
-				}
-			}
 			intermediate := []KeyValue{}
 			for i := 0; i < askForReply.MapNum; i++ {
-				dec := intermediateDecoderMap[i][askForReply.ReduceTaskIdx]
+				fileName := fmt.Sprintf("mr-%+v-%+v", i, askForReply.ReduceTaskIdx)
+				file, err := os.Open(fileName)
+				if err != nil {
+					log.Fatalf("cannot open intermediateDecoderFile:%v mapIdx:%+v reduceIdx:%+v", fileName, i, askForReply.ReduceTaskIdx)
+				}
+				dec := json.NewDecoder(file)
 				for {
 					var kv KeyValue
 					if err := dec.Decode(&kv); err != nil {
@@ -171,14 +154,14 @@ func Worker(mapf func(string, string) []KeyValue,
 				i = j
 			}
 			os.Rename(uuidFileName, oname)
-			//for i := 0; i < askForReply.MapNum; i++ {
-			//	fileName := fmt.Sprintf("mr-%+v-%+v", i, askForReply.ReduceTaskIdx)
-			//	err := os.Remove(fileName)
-			//	if err != nil {
-			//		log.Fatalf("cannot remove tmp file:%v", fileName)
-			//	}
-			//}
 			NotifyWorkerTaskStatus(ReducePhase, askForReply.ReduceTaskIdx, Success)
+			for i := 0; i < askForReply.MapNum; i++ {
+				fileName := fmt.Sprintf("mr-%+v-%+v", i, askForReply.ReduceTaskIdx)
+				err := os.Remove(fileName)
+				if err != nil {
+					log.Fatalf("cannot remove tmp file:%v", fileName)
+				}
+			}
 			ofile.Close()
 		}
 
@@ -206,6 +189,8 @@ func NotifyWorkerTaskStatus(phase Phase, taskIdx int, status WorkerTaskStatus) {
 	reply := NotifyWorkerTaskStatusReply{}
 
 	call("Master.NotifyWorkerTaskStatus", &args, &reply)
+
+	fmt.Printf("NotifyWorkerTaskStatus phase:%+v taskIdx:%+v status:%+v\n", phase, taskIdx, status)
 }
 
 //
