@@ -54,6 +54,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	var intermediateDecoderMap map[int]map[int]*json.Decoder
 	for {
 		askForReply := AskForTask()
+		fmt.Printf("askForReply:%+v\n", askForReply)
 		if askForReply.JobDone {
 			break
 		}
@@ -82,7 +83,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			fileName := askForReply.MapFile
 			file, err := os.Open(fileName)
 			if err != nil {
-				log.Fatalf("cannot open %v", fileName)
+				log.Fatalf("cannot open mapFile:%v", fileName)
 				break
 			}
 			content, err := ioutil.ReadAll(file)
@@ -148,7 +149,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			uuidFileName := fmt.Sprintf("mr-tmp-reduce-%v", uuidInstance.String())
 			ofile, err := os.OpenFile(uuidFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
-				log.Fatalf("cannot open %v", uuidFileName)
+				log.Fatalf("cannot open uuidFileName:%v", uuidFileName)
 				break
 			}
 
@@ -170,6 +171,13 @@ func Worker(mapf func(string, string) []KeyValue,
 				i = j
 			}
 			os.Rename(uuidFileName, oname)
+			//for i := 0; i < askForReply.MapNum; i++ {
+			//	fileName := fmt.Sprintf("mr-%+v-%+v", i, askForReply.ReduceTaskIdx)
+			//	err := os.Remove(fileName)
+			//	if err != nil {
+			//		log.Fatalf("cannot remove tmp file:%v", fileName)
+			//	}
+			//}
 			NotifyWorkerTaskStatus(ReducePhase, askForReply.ReduceTaskIdx, Success)
 			ofile.Close()
 		}
@@ -185,7 +193,7 @@ func AskForTask() AskForTaskReply {
 
 	call("Master.AskForTask", &args, &reply)
 
-	fmt.Printf("reply:%+v\n", reply)
+	//fmt.Printf("reply:%+v\n", reply)
 
 	return reply
 }

@@ -68,6 +68,7 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error {
 	mutex.Lock()
+	fmt.Printf("master status:%+v\n", *m)
 	if m.Finished {
 		reply.JobDone = true
 		return nil
@@ -108,14 +109,10 @@ func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error 
 					<-timer.C
 					reduceTaskMutex.Lock()
 					if m.ReduceTaskStatusMap[reduceTaskIdx] == Doing {
-						fileName := fmt.Sprintf("mr-out-%+v", reduceTaskIdx)
-						err := os.Truncate(fileName, 0)
-						if err != nil {
-							log.Fatalf("cannot truncate reduceFile:%v reduceIdx:%+v", fileName, reduceTaskIdx)
-						}
 						m.ReduceTaskStatusMap[reduceTaskIdx] = NotYetStarted
 					}
 				}(i)
+				break
 			}
 		}
 		reduceTaskMutex.Unlock()
@@ -132,7 +129,7 @@ func (m *Master) NotifyWorkerTaskStatus(args *NotifyWorkerTaskStatusArgs, reply 
 		if args.Status == Success {
 			m.MapTaskStatusMap[args.TaskIdx] = Done
 			m.DoneMapNum++
-			if m.DoneReduceNum == m.MapNum {
+			if m.DoneMapNum == m.MapNum {
 				m.CurPhase = ReducePhase
 			}
 		} else if args.Status == Fail {
