@@ -53,7 +53,6 @@ func Worker(mapf func(string, string) []KeyValue,
 	var intermediateFileNameMap map[int]string = nil
 	for {
 		askForReply := AskForTask()
-		fmt.Printf("askForReply:%+v\n", askForReply)
 		if askForReply.JobDone {
 			break
 		}
@@ -176,8 +175,6 @@ func AskForTask() AskForTaskReply {
 
 	call("Master.AskForTask", &args, &reply)
 
-	//fmt.Printf("reply:%+v\n", reply)
-
 	return reply
 }
 
@@ -189,8 +186,6 @@ func NotifyWorkerTaskStatus(phase Phase, taskIdx int, status WorkerTaskStatus) {
 	reply := NotifyWorkerTaskStatusReply{}
 
 	call("Master.NotifyWorkerTaskStatus", &args, &reply)
-
-	fmt.Printf("NotifyWorkerTaskStatus phase:%+v taskIdx:%+v status:%+v\n", phase, taskIdx, status)
 }
 
 //

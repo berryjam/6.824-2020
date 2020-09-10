@@ -68,7 +68,6 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (m *Master) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error {
 	mutex.Lock()
-	fmt.Printf("master status:%+v\n", *m)
 	if m.Finished {
 		mutex.Unlock()
 		reply.JobDone = true
