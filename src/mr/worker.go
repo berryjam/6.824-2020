@@ -76,7 +76,8 @@ func Worker(mapf func(string, string) []KeyValue,
 			fileName := askForReply.MapFile
 			file, err := os.Open(fileName)
 			if err != nil {
-				log.Fatalf("cannot open mapFile:%v", fileName)
+				//log.Fatalf("cannot open mapFile:%v", fileName)
+				os.Exit(1)
 				break
 			}
 			content, err := ioutil.ReadAll(file)
