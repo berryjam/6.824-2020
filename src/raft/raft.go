@@ -19,12 +19,23 @@ package raft
 
 import "sync"
 import "sync/atomic"
-import "../labrpc"
+import "g.csail.mit.edu/6.824/src/labrpc"
 
 // import "bytes"
 // import "../labgob"
 
+type Status int
 
+const (
+	Follower Status = iota
+	Candidate
+	Leader
+)
+
+type LogEntry struct {
+	data []byte
+	term int
+}
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -57,6 +68,20 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	// Persistent state on all servers
+	currentTerm int
+	votedFor    int
+	log         []LogEntry
+
+	// Volatile state on all servers
+	commitIndex int
+	lastApplied int
+
+	// Volatile state on leaders
+	nextIndex  []int
+	matchIndex []int
+
+	CurStatus Status
 }
 
 // return currentTerm and whether this server
@@ -66,6 +91,16 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+
+	rf.mu.Lock()
+	term = rf.currentTerm
+	if rf.CurStatus == Leader {
+		isleader = true
+	} else {
+		isleader = false
+	}
+	rf.mu.Unlock()
+
 	return term, isleader
 }
 
@@ -84,7 +119,6 @@ func (rf *Raft) persist() {
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
 }
-
 
 //
 // restore previously persisted state.
@@ -108,15 +142,16 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-
-
-
 //
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	term         int
+	candidateId  int
+	lastLogIndex int
+	lastLogTerm  int
 }
 
 //
@@ -125,6 +160,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (2A).
+	term        int
+	voteGranted bool
 }
 
 //
@@ -132,6 +169,51 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	reply.term = rf.currentTerm
+	reply.voteGranted = false // default not granted
+	if args.term < rf.currentTerm {
+		rf.mu.Unlock()
+		return
+	}
+	/**
+		The RequestVote RPC implements this restriction: the RPC
+	includes information about the candidate’s log, and the
+	voter denies its vote if its own log is more up-to-date than
+	that of the candidate.
+		Raft determines which of two logs is more up-to-date
+	by comparing the index and term of the last entries in the
+	logs. If the logs have last entries with different terms, then
+	the log with the later term is more up-to-date. If the logs
+	end with the same term, then whichever log is longer is
+	more up-to-date.
+	*/
+	isCandidateLogUpToDate := false
+	if len(rf.log) == 0 {
+		if args.lastLogIndex >= 0 {
+			isCandidateLogUpToDate = true
+		}
+	} else {
+		if args.lastLogTerm > rf.log[len(rf.log)-1].term {
+			isCandidateLogUpToDate = true
+		} else if args.lastLogTerm == rf.log[len(rf.log)-1].term {
+			if args.lastLogIndex >= len(rf.log) {
+				isCandidateLogUpToDate = true
+			}
+		}
+	}
+	if (rf.votedFor == -1 || rf.votedFor == args.candidateId) && isCandidateLogUpToDate {
+		reply.voteGranted = true
+	}
+	if reply.voteGranted {
+		rf.votedFor = args.candidateId
+	}
+	if args.term > rf.currentTerm {
+		rf.currentTerm = args.term
+		rf.CurStatus = Follower
+	}
+
+	rf.mu.Unlock()
 }
 
 //
@@ -168,7 +250,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -189,7 +270,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
 
 	return index, term, isLeader
 }
@@ -232,12 +312,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.log = make([]LogEntry, 0)
+	rf.CurStatus = Follower
 
 	// Your initialization code here (2A, 2B, 2C).
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
 
 	return rf
 }
